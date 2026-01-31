@@ -147,8 +147,8 @@ button {
   <option value="Housing">Housing</option>
   <option value="Insurance">Insurance</option>
   <option value="Income">Income</option>
-<option value="Other">Other</option>
-<option value="Personal">Personal</option>
+  <option value="Other">Other</option>
+  <option value="Personal">Personal</option>
   </select>
     <input id="startDate" type="date" />
   </div>
@@ -161,6 +161,8 @@ button {
   <button onclick="generate()">Generate Next 90 Days</button>
   <button onclick="exportData()">Export Data</button>
   <button onclick="importData()">Import Data</button>
+<button onclick="setPin()">Set / Change PIN</button>
+  <button onclick="exportPDF()">Export 90-Day PDF</button>
   <input id="importFile" type="file" style="display:none" />
 </div>
 
@@ -337,11 +339,14 @@ let firstLowDate = null;
       if (occursOn(p, day)) {
         const val = p.direction === "in" ? p.amount : -p.amount;
         change += val;
-        hits.push(`${p.name} [${p.category}] (${val > 0 ? "+" : "-"}£${Math.abs(val)})`);
-      }
+        hits.push(`${p.name} (${val > 0 ? "+" : "-"}£${Math.abs(val)})`);
 
-
-    });
+    // 👇 ADD THIS LINE
+    if (p.direction === "out") {
+      categoryTotals[p.category] = (categoryTotals[p.category] || 0) + Math.abs(val);
+    }
+  }
+});
 
 
 
@@ -476,6 +481,31 @@ function drawCategoryChart(totals) {
     URL.revokeObjectURL(url);
   }
 
+let appPin = localStorage.getItem("cashflow-pin") || null;
+
+window.onload = () => {
+  if (appPin) {
+    const entered = prompt("Enter PIN to unlock");
+    if (entered !== appPin) {
+      document.body.innerHTML = "<h2>Locked</h2>";
+    }
+  }
+};
+
+function setPin() {
+  const pin = prompt("Set a 4-digit PIN");
+  if (pin && pin.length >= 4) {
+    localStorage.setItem("cashflow-pin", pin);
+    appPin = pin;
+    alert("PIN set");
+  }
+}
+
+function exportPDF() {
+  const element = document.querySelector(".list");
+  html2pdf().from(element).save("90-day-forecast.pdf");
+}
+
   function importData() {
     document.getElementById("importFile").click();
   }
@@ -535,6 +565,9 @@ function formatDate(date) {
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 </body>
 </html>
