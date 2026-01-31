@@ -1,5 +1,5 @@
 {
-  "name": "Char's Bills",
+  "name": "Bills",
   "short_name": "Bills",
   "start_url": ".",
   "display": "standalone",
@@ -18,4 +18,5 @@
     }
   ]
 }
+
 
