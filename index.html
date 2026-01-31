@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4f46e5">
+  <meta charset="UTF-8" />
+  <title>Charlotte Spare</title>
+  <style>
+body {
+  font-family: system-ui, Arial, sans-serif;
+  background: #f5f7fb;
+  padding: 20px;
+  max-width: 900px;
+  margin: auto;
+  font-size: 18px; /* increased from 16px to 18px */
+  line-height: 1.5;
+}
+
+.card {
+  background: white;
+  padding: 24px; /* more padding */
+  border-radius: 12px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+input, select, button {
+  padding: 14px; /* larger inputs */
+  margin: 6px 0;
+  font-size: 18px; /* larger text */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+button {
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* Payment rows */
+.payment {
+  display: flex;
+  justify-content: space-between;
+  border: 1px solid #ddd;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.payment button {
+  padding: 12px;
+  font-size: 16px;
+  margin-left: 8px;
+}
+
+/* Table / day rows */
+.day {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 2fr;
+  gap: 10px;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+  word-break: break-word;
+  font-size: 16px;
+}
+
+.day.negative {
+  background-color: #ffe6e6;
+}
+
+/* MOBILE STYLES */
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .payment {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .payment button {
+    margin-left: 0;
+    margin-top: 8px;
+  }
+  .day {
+    grid-template-columns: 1.5fr 1fr;
+    grid-template-rows: auto auto;
+    font-size: 16px;
+  }
+  .day > div:nth-child(3),
+  .day > div:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+}
+
+</style>
+
+</head>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("service-worker.js");
+  }
+</script>
+<body>
+
+<h1>Charlotte Spare</h1>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <label>Current Balance</label><br />
+      <input id="balance" type="number" value="1000" />
+    </div>
+    <div>
+      <label>What If I Use</label><br />
+      <input id="whatIf" type="number" value="0" />
+    </div>
+ <div>
+      <label>Low Balance Warning (£)</label><br />
+      <input id="lowAlert" type="number" value="100" />
+    </div>
+  </div>
+</div>
+
+
+<div class="card">
+  <h3>Add Recurring Payment</h3>
+  <div class="row">
+    <input id="name" placeholder="Name" />
+    <input id="amount" type="number" placeholder="Amount" />
+    <select id="direction">
+      <option value="in">Money In</option>
+      <option value="out">Money Out</option>
+    </select>
+    <select id="frequency">
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="once">One-off</option>
+    </select>
+<select id="category">
+  <option value="Internet">Internet</option>
+  <option value="Mobile">Mobile</option>
+  <option value="Utilities">Utilities</option>
+  <option value="Entertainment">Entertainment</option>
+  <option value="Housing">Housing</option>
+  <option value="Insurance">Insurance</option>
+  <option value="Income">Income</option>
+  </select>
+    <input id="startDate" type="date" />
+  </div>
+  <button onclick="addPayment()">Add Payment</button>
+
+  <div id="payments"></div>
+</div>
+
+<div class="card">
+  <button onclick="generate()">Generate Next 90 Days</button>
+  <button onclick="exportData()">Export Data</button>
+  <button onclick="importData()">Import Data</button>
+  <input id="importFile" type="file" style="display:none" />
+</div>
+
+<div class="card">
+  <h3>90-Day Running Balance</h3>
+  <canvas id="balanceChart" style="max-height: 300px;"></canvas>
+<canvas id="categoryChart" style="max-height: 300px; margin-top: 20px;"></canvas>
+  <div class="list" id="schedule"></div>
+</div>
+
+<script>
+  let payments = [];
+
+  // Load saved data when page opens
+  const saved = localStorage.getItem("cashflow-data");
+  if (saved) {
+    const data = JSON.parse(saved);
+    payments = data.payments || [];
+    document.getElementById("balance").value = data.balance || 0;
+    document.getElementById("whatIf").value = data.whatIf || 0;
+    document.getElementById("lowAlert").value = data.lowAlert || 0;
+    renderPayments();
+  }
+
+  function saveData() {
+  const balance = document.getElementById("balance").value;
+  const whatIf = document.getElementById("whatIf").value;
+  const lowAlert = document.getElementById("lowAlert").value;
+
+  localStorage.setItem("cashflow-data", JSON.stringify({
+    balance,
+    whatIf,
+    lowAlert,
+    payments
+  }));
+}
+
+  function addPayment() {
+  const name = document.getElementById("name").value;
+  const amount = Number(document.getElementById("amount").value);
+  const direction = document.getElementById("direction").value;
+  const frequency = document.getElementById("frequency").value;
+  const startDate = document.getElementById("startDate").value;
+const category = document.getElementById("category").value;
+
+  if (!name || !amount || !startDate) return alert("Fill all fields");
+
+  if (editingIndex !== null) {
+    // Update existing payment
+    payments[editingIndex] = { name, amount, direction, frequency, startDate, category };
+    editingIndex = null;
+  } else {
+    // Add new payment
+    payments.push({ name, amount, direction, frequency, startDate, category });
+  }
+
+  // Clear input fields
+  document.getElementById("name").value = "";
+  document.getElementById("amount").value = "";
+  document.getElementById("direction").value = "in";
+  document.getElementById("frequency").value = "weekly";
+  document.getElementById("startDate").value = "";
+document.getElementById("category").value = "Utilities";
+
+  saveData();
+  renderPayments();
+}
+
+
+  function renderPayments() {
+  const el = document.getElementById("payments");
+  el.innerHTML = "";
+  payments.forEach((p, i) => {
+    const div = document.createElement("div");
+    div.className = "payment";
+    div.innerHTML = `
+      <div>
+  <b>${p.name}</b> 
+  <small>[${p.category}]</small><br/>
+  (${p.frequency}) ${p.direction === "in" ? "+" : "-"}£${p.amount}
+</div>
+      <div>
+        <button onclick="editPayment(${i})">Edit</button>
+        <button onclick="removePayment(${i})">X</button>
+      </div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+
+  function removePayment(i) {
+    payments.splice(i, 1);
+    saveData();
+    renderPayments();
+  }
+
+  function occursOn(p, date) {
+  const start = new Date(p.startDate);
+  const target = new Date(date);
+
+  if (p.frequency === "once") {
+    return (
+      target.getFullYear() === start.getFullYear() &&
+      target.getMonth() === start.getMonth() &&
+      target.getDate() === start.getDate()
+    );
+  }
+
+  if (target < start) return false;
+
+  if (p.frequency === "weekly") {
+    const diff = Math.floor((target - start) / (1000 * 60 * 60 * 24));
+    return diff % 7 === 0;
+  }
+
+  if (p.frequency === "monthly") {
+    const startDay = start.getDate();
+
+    const monthsDiff =
+      (target.getFullYear() - start.getFullYear()) * 12 +
+      (target.getMonth() - start.getMonth());
+
+    if (monthsDiff < 0) return false;
+
+    const y = start.getFullYear();
+    const m = start.getMonth() + monthsDiff;
+
+    const maxDay = lastDayOfMonth(y, m);
+    const actualDay = Math.min(startDay, maxDay);
+
+    const scheduled = new Date(y, m, actualDay);
+    moveToNextWorkingDay(scheduled);
+
+    return (
+      scheduled.getFullYear() === target.getFullYear() &&
+      scheduled.getMonth() === target.getMonth() &&
+      scheduled.getDate() === target.getDate()
+    );
+  }
+
+  return false;
+}
+
+
+function generate() {
+  const container = document.getElementById("schedule");
+  container.innerHTML = "";
+const categoryTotals = {};
+
+const lowAlert = Number(document.getElementById("lowAlert").value) || 0;
+let firstLowDate = null;
+  const baseBalance = Number(document.getElementById("balance").value) || 0;
+  const whatIf = Number(document.getElementById("whatIf").value) || 0;
+
+  let balance = baseBalance - whatIf;
+  saveData();
+
+  const today = new Date();
+
+  const labels = [];
+  const balances = [];
+
+  let firstNegativeDate = null;
+
+  for (let i = 0; i < 90; i++) {
+    const day = new Date(today);
+    day.setDate(day.getDate() + i);
+
+    let change = 0;
+    const hits = [];
+
+    payments.forEach(p => {
+      if (occursOn(p, day)) {
+        const val = p.direction === "in" ? p.amount : -p.amount;
+        change += val;
+        hits.push(`${p.name} [${p.category}] (${val > 0 ? "+" : "-"}£${Math.abs(val)})`);
+      }
+
+
+    });
+
+
+
+    balance += change;
+
+    if (balance < 0 && !firstNegativeDate) {
+      firstNegativeDate = formatDate(day);
+    }
+
+if (balance < lowAlert && !firstLowDate) {
+  firstLowDate = formatDate(day);
+}
+
+    labels.push(formatDate(day));
+    balances.push(balance.toFixed(2));
+
+    const row = document.createElement("div");
+    row.className = "day" + (balance < 0 ? " negative" : "");
+    row.innerHTML = `
+      <div>${formatDate(day)}</div>
+      <div>${change === 0 ? "—" : (change > 0 ? "+" : "-") + "£" + Math.abs(change)}</div>
+      <div><b>£${balance.toFixed(2)}</b></div>
+      <div>${hits.join(", ") || "—"}</div>
+    `;
+    container.appendChild(row);
+  }
+
+  if (firstNegativeDate) {
+    alert("⚠️ You will go negative on " + firstNegativeDate);
+  }
+
+if (firstLowDate) {
+  alert("⚠️ Your balance drops below £" + lowAlert + " on " + firstLowDate);
+}
+
+
+  drawChart(labels, balances);
+drawCategoryChart(categoryTotals);
+}
+
+let chart;
+
+function drawChart(labels, balances) {
+  const ctx = document.getElementById("balanceChart").getContext("2d");
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Balance (£)",
+        data: balances,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: value => "£" + value
+          }
+        }
+      }
+    }
+  });
+}
+let categoryChart;
+
+const categoryColours = {
+  Internet: "#4f46e5",
+  Mobile: "#0ea5e9",
+  Utilities: "#22c55e",
+  Entertainment: "#f59e0b",
+  Housing: "#ef4444",
+  Insurance: "#8b5cf6",
+  Income: "#10b981"
+};
+
+function drawCategoryChart(totals) {
+  const ctx = document.getElementById("categoryChart").getContext("2d");
+
+  if (categoryChart) categoryChart.destroy();
+
+  const labels = Object.keys(totals);
+  const data = labels.map(l => totals[l] || 0);
+  const colors = labels.map(l => categoryColours[l] || "#999");
+
+  categoryChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: v => "£" + v
+          }
+        }
+      }
+    }
+  });
+}
+
+
+  function exportData() {
+    const data = localStorage.getItem("cashflow-data");
+    if (!data) return alert("No data to export");
+
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cashflow-backup.json";
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function importData() {
+    document.getElementById("importFile").click();
+  }
+
+  document.getElementById("importFile").addEventListener("change", function () {
+    const file = this.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const data = JSON.parse(e.target.result);
+        localStorage.setItem("cashflow-data", JSON.stringify(data));
+        location.reload();
+      } catch {
+        alert("Invalid file");
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // Auto-save when values change
+  document.getElementById("balance").addEventListener("input", saveData);
+  document.getElementById("whatIf").addEventListener("input", saveData);
+let editingIndex = null;
+
+function editPayment(i) {
+  const p = payments[i];
+  document.getElementById("name").value = p.name;
+  document.getElementById("amount").value = p.amount;
+  document.getElementById("direction").value = p.direction;
+  document.getElementById("frequency").value = p.frequency;
+  document.getElementById("startDate").value = p.startDate;
+  document.getElementById("category").value = p.category;
+
+  editingIndex = i;
+}
+
+function formatDate(date) {
+    const dd = String(date.getDate()).padStart(2, "0");
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const yyyy = date.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  function lastDayOfMonth(year, month) {
+    return new Date(year, month + 1, 0).getDate();
+  }
+
+  function moveToNextWorkingDay(date) {
+    const day = date.getDay(); // 0 = Sun, 6 = Sat
+    if (day === 6) date.setDate(date.getDate() + 2); // Saturday → Monday
+    if (day === 0) date.setDate(date.getDate() + 1); // Sunday → Monday
+    return date;
+  }
+
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</body>
+</html>
